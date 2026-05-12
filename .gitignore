@@ -1,0 +1,43 @@
+# Models (too large for git — host separately)
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# ONNX exports
+onnx_models/
+*.onnx
+
+# Data
+*.npy
+*.json
+LPCVC_DATA/
+annotations_trainval2014/
+
+# API keys
+key.json
+*.key
+openrouter_key.txt
+.env
+.auth/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Logs
+*.log
+*.pid
+*.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
