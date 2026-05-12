@@ -246,6 +246,14 @@ python create_soup.py
 # Saves best soup → models/soup_fresh2_x_s05e1_a042.pt  (alpha=0.42)
 ```
 
+### Step 5 — Export ONNX + Compile on AI Hub
+
+```bash
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt --arch MobileCLIP-B --pretrained datacompdr --no_prompt
+```
+
+This exports ONNX with Sigmoid GELU, submits compile and profile jobs to Qualcomm AI Hub, and prints the resulting job IDs for submission.
+
 ---
 
 ## Results
