@@ -107,6 +107,7 @@ Standard GELU uses the error function (`erf`), which is not supported by the Qua
 ├── npu_utils.py           # NPU compatibility utilities (Sigmoid GELU, no-CLS pooling)
 ├── ptqat_utils.py         # Post-training quantization-aware training utilities
 ├── generate_captions.py   # Generate Gemini referring-expression captions for COCO images
+# Note: smooth_quant_utils.py is not included — only needed for --smooth_quant experiments (not used in final submission)
 ├── data/
 │   └── gemini_captions.json    # Pre-generated captions for 68K COCO train2014 images
 ├── models/
@@ -173,6 +174,16 @@ Training requires the following datasets. Place them relative to the repo root o
 | [Visual Genome images](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) | ~15GB | Fine-tuning diversity |
 | [VG region descriptions](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) | ~1GB | VG text annotations |
 | RefCOCO/+/g | auto-downloaded via HuggingFace | Proxy metric evaluation |
+| [LPCVC Sample Set](https://lpcv.ai) | provided by competition organizers | `evaluate.py` local scoring |
+
+The competition sample set (`track1_sample/`) is provided by the LPCVC organizers to registered participants. Place it at:
+
+```
+<repo_root>/LPCVC_DATA/track1_sample/sample/
+├── images/default/        ← sample images
+├── sample_image_to_texts.csv
+└── sample_texts.csv
+```
 
 To use a different data root, set the environment variable:
 ```bash

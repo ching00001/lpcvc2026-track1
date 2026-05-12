@@ -1,0 +1,12 @@
+torch>=2.0.0
+torchvision>=0.15.0
+open-clip-torch>=2.20.0
+onnx>=1.14.0
+onnxruntime>=1.15.0
+numpy>=1.24.0
+pillow>=10.0.0
+pandas>=2.0.0
+tqdm>=4.65.0
+datasets>=2.0.0         # HuggingFace datasets — RefCOCO auto-download in finetune_utils.py
+google-generativeai     # optional — only needed to regenerate data/gemini_captions.json
+# qai-hub: install from https://aihub.qualcomm.com
