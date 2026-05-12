@@ -22,13 +22,13 @@ from PIL import Image
 import open_clip
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from train_fullimg import (
+from finetune_utils import (
     CompetitionTransform, CLIPContrastiveLoss, SigLIPLoss,
     BASE_DIR, DATA_ROOT, data_path, COCO_TRAIN2014_DIR,
     load_refcoco_fullimage, load_vg_fullimage,
     build_proxy_valset, evaluate_proxy,
 )
-from no_cls_utils import apply_no_cls_gap, load_no_cls_checkpoint, verify_no_cls, apply_txt_gap, verify_txt_gap
+from npu_utils import apply_no_cls_gap, load_no_cls_checkpoint, verify_no_cls, apply_txt_gap, verify_txt_gap
 from ptqat_utils import apply_ptqat_text, remove_ptqat_text
 
 COCO_VAL2014_DIR = data_path("val2014", "val2014")
@@ -629,7 +629,7 @@ def train(args):
     print(f"Params: {trainable/1e6:.1f}M trainable / {total/1e6:.1f}M total ({mode})")
 
     # Load and split data
-    gemini_json = data_path("vllm_captions", "captions_full_gemini.json")
+    gemini_json = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gemini_captions.json")
     train_entries, val_entries = load_and_split_gemini(
         gemini_json, val_ratio=args.val_ratio, seed=42)
 

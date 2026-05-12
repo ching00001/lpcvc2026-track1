@@ -27,10 +27,10 @@ from PIL import Image
 import open_clip
 
 sys.path.insert(0, os.path.dirname(__file__))
-from local_eval import (
+from evaluate import (
     load_sample_dataset, compute_recall_at_k, IMAGE_DIR
 )
-from no_cls_utils import apply_no_cls_gap, load_no_cls_checkpoint, verify_no_cls
+from npu_utils import apply_no_cls_gap, load_no_cls_checkpoint, verify_no_cls
 
 
 def preprocess_image_raw(image_path, image_size=224):
