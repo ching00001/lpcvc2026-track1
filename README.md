@@ -66,16 +66,10 @@ MobileCLIP-B/datacompdr (pretrained)
          ▼
  ┌──── Step 5 ────────────────────────────────────┐
  │  export_onnx.py                                │
- │  PyTorch → ONNX, replace GELU → Sigmoid GELU  │
- │  → onnx_models/image_encoder.onnx             │
- │  → onnx_models/text_encoder.onnx              │
- └────────────────────────────────────────────────┘
-         │
-         ▼
- ┌──── Step 6 ────────────────────────────────────┐
- │  compile_image.py / compile_text.py            │
- │  Upload ONNX to Qualcomm AI Hub                │
- │  INT8 quantization + XR2 Gen 2 compilation     │
+ │  PyTorch → ONNX (Sigmoid GELU replacement)     │
+ │  → upload to Qualcomm AI Hub                  │
+ │  → INT8 compile for XR2 Gen 2 NPU             │
+ │  → profile latency                            │
  └────────────────────────────────────────────────┘
 ```
 
@@ -113,8 +107,6 @@ Standard GELU uses the error function (`erf`), which is not supported by the Qua
 ├── npu_utils.py           # NPU compatibility utilities (Sigmoid GELU, no-CLS pooling)
 ├── ptqat_utils.py         # Post-training quantization-aware training utilities
 ├── generate_captions.py   # Generate Gemini referring-expression captions for COCO images
-├── compile_image.py       # Compile image encoder on Qualcomm AI Hub (Step 6)
-├── compile_text.py        # Compile text encoder on Qualcomm AI Hub (Step 6)
 ├── data/
 │   └── gemini_captions.json    # Pre-generated captions for 68K COCO train2014 images
 ├── models/
@@ -206,13 +198,16 @@ python evaluate.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt
 To reproduce the full submission (ONNX export + AI Hub compilation):
 
 ```bash
-# Step 5: Export to ONNX
-python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt --arch MobileCLIP-B --pretrained datacompdr --no_prompt --export_only
+# Export ONNX + compile on AI Hub + profile (all-in-one)
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt \
+    --arch MobileCLIP-B --pretrained datacompdr --no_prompt
 
-# Step 6: Compile on AI Hub (requires qai-hub account)
-python compile_image.py --onnx_dir onnx_models/models_soup_fresh2_x_s05e1_a042
-python compile_text.py  --onnx_dir onnx_models/models_soup_fresh2_x_s05e1_a042
+# Export ONNX only (skip AI Hub steps)
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt \
+    --arch MobileCLIP-B --pretrained datacompdr --no_prompt --export_only
 ```
+
+`export_onnx.py` handles the full pipeline: ONNX export → Sigmoid GELU replacement → AI Hub compile job → latency profiling. Requires a [Qualcomm AI Hub](https://aihub.qualcomm.com) account.
 
 ---
 
