@@ -10,6 +10,7 @@ onnx_models/
 # Data
 *.npy
 *.json
+!lpcvc2026/captions_full_gemini.json
 LPCVC_DATA/
 annotations_trainval2014/
 
