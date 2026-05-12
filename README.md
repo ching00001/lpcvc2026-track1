@@ -1,8 +1,11 @@
 # LPCVC 2026 Track 1 — Solution
 
 **Team**: mangojump
-**Members**: Bo-Qing Wu (Chung Yuan Christian University) · Min-Quan Wang (National Yang Ming Chiao Tung University)
+
+**Members**: Bo-Qing Wu (Chung Yuan Christian University), Min-Quan Wang (National Yang Ming Chiao Tung University)
+
 **Competition**: [2026 Low-Power Computer Vision Challenge (LPCVC)](https://lpcv.ai), Track 1: Image-to-Text Retrieval
+
 **Leaderboard Score**: 0.6122 (Recall@10)
 
 ---
