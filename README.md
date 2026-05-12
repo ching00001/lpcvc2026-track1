@@ -152,12 +152,7 @@ pip install qai-hub  # see https://aihub.qualcomm.com
 }
 ```
 
-This file covers ~68K COCO train2014 images and was generated using `generate_captions.py` with Gemini 2.0 Flash. To regenerate it yourself, set `GEMINI_API_KEY` and run:
-
-```bash
-export GEMINI_API_KEY=your_key_here
-python generate_captions.py
-```
+This file covers ~68K COCO train2014 images and is **already included** — no need to regenerate it. It was produced using `generate_captions.py` with Gemini 2.0 Flash (provided for reference only).
 
 ### Image data (download separately)
 
