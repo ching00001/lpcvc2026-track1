@@ -1,6 +1,4 @@
-# Models (too large for git — host separately)
-models/
-*.pt
+# Large binaries (tracked by Git LFS — see .gitattributes)
 *.pth
 *.bin
 *.safetensors
