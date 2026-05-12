@@ -81,27 +81,49 @@ MobileCLIP-B/datacompdr (pretrained)
 
 ---
 
+## Key Findings
+
+These are the insights that most impacted our final score, in order of importance:
+
+**1. [0,1] normalization is critical.**
+The competition evaluation pipeline normalizes images by `/255.0` only — it does **not** apply the standard CLIP mean/std normalization. Training with incorrect CLIP normalization caused a train/inference mismatch that significantly hurt performance. All models must be trained with `CompetitionTransform` (see `lpcvc2026/modules/data.py`).
+
+**2. Checkpoint diversity beats single-model optimization.**
+Model Soup (weight averaging two complementary checkpoints) consistently outperforms any individual checkpoint. The key is that the two parent checkpoints must be *different enough* — Run04 (fresh fine-tune) and Run05 (fine-tuned from an intermediate soup) represent different loss basins, and their average generalizes better than either alone. Fine-tuning a soup checkpoint never helped; it always collapsed the diversity that made the soup work.
+
+**3. The proxy metric must match the competition sample distribution.**
+Our first proxy metric (`proxy_v1 = 0.6×Test_R@10 + 0.4×Sample_R@10`) was misleading: models with higher calibration-test R@10 actually performed *worse* on the real leaderboard. After analysis we found the competition sample set uses longer, relational referring expressions (avg. 5 words, "with" clauses), while the calibration test set has shorter captions. We switched to `proxy_v2 = 0.1×Test_R@10 + 0.9×Sample_R@10`, which aligns correctly with leaderboard ordering.
+
+**4. Prompt baking hurts performance.**
+We tested prepending prompt templates ("a photograph of", "a photo of") into the text encoder at export time. All variants degraded the proxy score by 2–4%. The model was fine-tuned on plain captions without prompts, so adding them at inference time creates a distribution mismatch. We use `--no_prompt` for all exports.
+
+**5. Sigmoid GELU is required for NPU deployment.**
+Standard GELU uses the error function (`erf`), which is not supported by the Qualcomm Hexagon NPU. We replace all `nn.GELU` instances with `x × σ(1.702x)` at ONNX export time (`npu_utils.py`). This approximation has negligible accuracy impact but is essential for the model to run on-device.
+
+---
+
 ## Repository Structure
 
 ```
-├── finetune.py           # Fine-tune MobileCLIP-B on Gemini captions (Steps 1 & 3)
-├── finetune_utils.py     # Dataset loaders, loss functions, training utilities
-├── create_soup.py        # Model soup: scan alpha and weight-average checkpoints (Steps 2 & 4)
-├── export_onnx.py        # Export PyTorch model to ONNX with Sigmoid GELU (Step 5)
-├── evaluate.py           # Local Recall@10 evaluation on competition sample set
-├── npu_utils.py          # NPU compatibility utilities (Sigmoid GELU, no-CLS pooling)
-├── ptqat_utils.py        # Post-training quantization-aware training utilities
-├── compile_image.py      # Compile image encoder on Qualcomm AI Hub (Step 6)
-├── compile_text.py       # Compile text encoder on Qualcomm AI Hub (Step 6)
+├── finetune.py            # Fine-tune MobileCLIP-B on Gemini captions (Steps 1 & 3)
+├── finetune_utils.py      # Dataset loaders, loss functions, training utilities
+├── create_soup.py         # Model soup: scan alpha and weight-average checkpoints (Steps 2 & 4)
+├── export_onnx.py         # Export PyTorch model to ONNX with Sigmoid GELU (Step 5)
+├── evaluate.py            # Local Recall@10 evaluation on competition sample set
+├── npu_utils.py           # NPU compatibility utilities (Sigmoid GELU, no-CLS pooling)
+├── ptqat_utils.py         # Post-training quantization-aware training utilities
+├── generate_captions.py   # Generate Gemini referring-expression captions for COCO images
+├── compile_image.py       # Compile image encoder on Qualcomm AI Hub (Step 6)
+├── compile_text.py        # Compile text encoder on Qualcomm AI Hub (Step 6)
 ├── data/
-│   └── gemini_captions.json   # 68K Visual Genome images with Gemini-generated captions
+│   └── gemini_captions.json    # Pre-generated captions for 68K COCO train2014 images
 ├── models/
 │   └── soup_fresh2_x_s05e1_a042.pt   # Final model (LB=0.6122) — tracked by Git LFS
 ├── lpcvc2026/
 │   └── modules/
-│       ├── data.py       # CompetitionTransform, dataset path resolution
-│       ├── evaluate.py   # evaluate_on_sample() — proxy metric computation
-│       └── soup.py       # Weight averaging helpers
+│       ├── data.py        # CompetitionTransform, dataset loaders, path resolution
+│       ├── evaluate.py    # evaluate_on_sample() — proxy metric computation
+│       └── soup.py        # Weight averaging helpers
 └── requirements.txt
 ```
 
@@ -118,9 +140,57 @@ pip install -r requirements.txt
 pip install qai-hub  # see https://aihub.qualcomm.com
 ```
 
-**External datasets** (download separately, not included in this repo):
-- [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) — images for fine-tuning
-- [COCO 2014](https://cocodataset.org/) — train/val images used in proxy evaluation
+---
+
+## Data Setup
+
+### Caption data (included)
+
+`data/gemini_captions.json` is already included in this repo. It maps each COCO image filename to a list of Gemini-generated referring expressions:
+
+```json
+{
+  "COCO_train2014_000000000009.jpg": [
+    "the pink container",
+    "the yellow broccoli",
+    "a person in a blue jacket holding an umbrella",
+    "a dog sitting on a wooden floor near the window"
+  ],
+  ...
+}
+```
+
+This file covers ~68K COCO train2014 images and was generated using `generate_captions.py` with Gemini 2.0 Flash. To regenerate it yourself, set `GEMINI_API_KEY` and run:
+
+```bash
+export GEMINI_API_KEY=your_key_here
+python generate_captions.py
+```
+
+### Image data (download separately)
+
+Training requires the following datasets. Place them relative to the repo root or set the `LPCVC_BASE_DIR` environment variable:
+
+```
+<repo_root>/                        ← BASE_DIR (auto-detected)
+├── train2014/train2014/            ← COCO train2014 images
+│   └── COCO_train2014_*.jpg
+├── vg_images/VG_100K/              ← Visual Genome images
+│   └── *.jpg
+└── region_descriptions.json        ← Visual Genome region descriptions
+```
+
+| Dataset | Download | Used for |
+|---------|----------|---------|
+| [COCO train2014](https://cocodataset.org/#download) | ~13GB | Gemini caption fine-tuning |
+| [Visual Genome images](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) | ~15GB | Fine-tuning diversity |
+| [VG region descriptions](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) | ~1GB | VG text annotations |
+| RefCOCO/+/g | auto-downloaded via HuggingFace | Proxy metric evaluation |
+
+To use a different data root, set the environment variable:
+```bash
+export LPCVC_BASE_DIR=/path/to/your/data
+```
 
 ---
 
