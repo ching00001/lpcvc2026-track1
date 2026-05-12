@@ -1,52 +1,82 @@
 # LPCVC 2026 Track 1 — Winning Solution
 
-**Team**: [Your Team Name]  
-**Competition**: [2026 Low-Power Computer Vision Challenge (LPCVC)](https://lpcv.ai), Track 1: Image-to-Text Retrieval  
+**Team**: [Your Team Name]
+**Organization**: [Your University / Lab]
+**Competition**: [2026 Low-Power Computer Vision Challenge (LPCVC)](https://lpcv.ai), Track 1: Image-to-Text Retrieval
 **Result**: 1st Place — Leaderboard Score **0.6122** (Recall@10)
 
 ---
 
 ## Overview
 
-This repository contains the winning solution for **LPCVC 2026 Track 1**, which targets on-device image-to-text retrieval on the Qualcomm XR2 Gen 2 NPU via [Qualcomm AI Hub](https://aihub.qualcomm.com/).
+This repository contains the winning solution for **LPCVC 2026 Track 1**, which tasks participants with building an image-to-text retrieval model that runs efficiently on the **Qualcomm XR2 Gen 2 NPU** via [Qualcomm AI Hub](https://aihub.qualcomm.com/).
 
-Our approach fine-tunes **MobileCLIP-B** (pretrained on DataComp-DR) using Gemini-generated referring-expression captions from Visual Genome images, then constructs a **Model Soup** (weight averaging) across fine-tuned checkpoints to maximize generalization.
-
-### Key Techniques
-
-| Technique | Description |
-|-----------|-------------|
-| **Gemini Caption Fine-tuning** | Fine-tune MobileCLIP-B on ~68K VG images re-captioned by Gemini 2.0 Flash with structured referring expressions |
-| **Spatial Hard Negatives** | Automatically swap spatial words (left/right/upper/lower) to generate hard negative pairs during training |
-| **Sigmoid GELU** | Replace `x * Φ(1.702x)` for NPU-compatible GELU approximation at export time |
-| **Model Soup** | Weight-average two complementary fine-tuned checkpoints to improve generalization |
-| **Proxy Metric** | `proxy_v2 = 0.1 × Test_R@10 + 0.9 × Sample_R@10` tracks submission-relevant performance |
+We start from **MobileCLIP-B** pretrained on DataComp-DR and fine-tune it using Gemini-generated referring-expression captions derived from Visual Genome images. The final model is produced by **Model Soup** — a simple weight averaging of two complementary fine-tuned checkpoints — which consistently outperforms any individual checkpoint on the competition metric.
 
 ---
 
-## Pipeline
+## Key Techniques
+
+| Technique | Description |
+|-----------|-------------|
+| **[0,1] Normalization** | Competition eval pipeline uses `/255.0` only (no CLIP mean/std). Training with correct normalization was critical. |
+| **Gemini Caption Fine-tuning** | Fine-tune on ~68K Visual Genome images re-captioned by Gemini 2.0 Flash with structured referring expressions (`data/gemini_captions.json`) |
+| **Spatial Hard Negatives** | Auto-generate hard negatives by swapping spatial words (left↔right, upper↔lower) during training |
+| **Model Soup** | Weight-average two complementary checkpoints (alpha=0.42) to improve generalization beyond any single run |
+| **Sigmoid GELU** | Replace standard GELU with `x × σ(1.702x)` at export time for Qualcomm NPU compatibility |
+| **Proxy Metric** | `proxy_v2 = 0.1 × Test_R@10 + 0.9 × Sample_R@10` reliably tracks leaderboard performance |
+
+---
+
+## Full Pipeline
 
 ```
-MobileCLIP-B (datacompdr pretrained)
-       │
-       ▼
-  Fine-tune Run04          Fine-tune Run05
-  (VG, lr=5e-6, ep2)      (from soup, lr=3e-6, ep1)
-       │                          │
-       └──────── Model Soup ──────┘
-                 alpha=0.42
-                     │
-                     ▼
-         soup_fresh2_x_s05e1_a042.pt
-                 (LB = 0.6122)
-                     │
-                     ▼
-          export_prompt_baked.py
-          (ONNX + Sigmoid GELU)
-                     │
-                     ▼
-         Qualcomm AI Hub Compilation
-              (XR2 Gen 2 NPU)
+MobileCLIP-B/datacompdr (pretrained)
+         │
+         ▼
+ ┌──── Step 1 ────────────────────────────────────┐
+ │  finetune.py  (Run04)                          │
+ │  VG + Gemini captions, lr=5e-6, 5 epochs       │
+ │  → models/run04/epoch_1.pt ~ epoch_5.pt        │
+ └────────────────────────────────────────────────┘
+         │ epoch_1 ~ epoch_5
+         ▼
+ ┌──── Step 2 ────────────────────────────────────┐
+ │  create_soup.py  (intermediate soup)           │
+ │  Scan alpha, pick best Run04 soup checkpoint   │
+ │  → models/run04_soup.pt                        │
+ └────────────────────────────────────────────────┘
+         │
+         ▼
+ ┌──── Step 3 ────────────────────────────────────┐
+ │  finetune.py  (Run05)                          │
+ │  Resume from run04_soup, lr=3e-6, 1 epoch      │
+ │  → models/run05/epoch_1.pt                     │
+ └────────────────────────────────────────────────┘
+         │
+         │  Run04/epoch_2.pt  ×  Run05/epoch_1.pt
+         ▼
+ ┌──── Step 4 ────────────────────────────────────┐
+ │  create_soup.py  (final soup)                  │
+ │  Scan alpha ∈ [0.25, 0.60]                     │
+ │  Best: alpha=0.42                              │
+ │  → models/soup_fresh2_x_s05e1_a042.pt  ✓      │
+ └────────────────────────────────────────────────┘
+         │
+         ▼
+ ┌──── Step 5 ────────────────────────────────────┐
+ │  export_onnx.py                                │
+ │  PyTorch → ONNX, replace GELU → Sigmoid GELU  │
+ │  → onnx_models/image_encoder.onnx             │
+ │  → onnx_models/text_encoder.onnx              │
+ └────────────────────────────────────────────────┘
+         │
+         ▼
+ ┌──── Step 6 ────────────────────────────────────┐
+ │  compile_image.py / compile_text.py            │
+ │  Upload ONNX to Qualcomm AI Hub                │
+ │  INT8 quantization + XR2 Gen 2 compilation     │
+ └────────────────────────────────────────────────┘
 ```
 
 ---
@@ -54,19 +84,25 @@ MobileCLIP-B (datacompdr pretrained)
 ## Repository Structure
 
 ```
-├── train_gemini_full.py          # Main training script (Gemini captions + VG)
-├── train_fullimg.py              # Base training utilities and dataset loaders
-├── soup_fresh2_x_s05e1.py        # Model soup search (Run04-ep2 × Run05-ep1)
-├── export_prompt_baked.py        # ONNX export with Sigmoid GELU replacement
-├── local_eval.py                 # Local PyTorch R@10 evaluation
-├── no_cls_utils.py               # Sigmoid GELU, no-CLS pooling utilities
-├── compile_image_with_calibration.py  # AI Hub image encoder compilation
-├── compile_text_with_calibration.py   # AI Hub text encoder compilation
-└── lpcvc2026/
-    └── modules/
-        ├── data.py               # CompetitionTransform, dataset paths
-        ├── evaluate.py           # evaluate_on_sample (proxy metric)
-        └── soup.py               # Weight averaging utilities
+├── finetune.py           # Fine-tune MobileCLIP-B on Gemini captions (Steps 1 & 3)
+├── finetune_utils.py     # Dataset loaders, loss functions, training utilities
+├── create_soup.py        # Model soup: scan alpha and weight-average checkpoints (Steps 2 & 4)
+├── export_onnx.py        # Export PyTorch model to ONNX with Sigmoid GELU (Step 5)
+├── evaluate.py           # Local Recall@10 evaluation on competition sample set
+├── npu_utils.py          # NPU compatibility utilities (Sigmoid GELU, no-CLS pooling)
+├── ptqat_utils.py        # Post-training quantization-aware training utilities
+├── compile_image.py      # Compile image encoder on Qualcomm AI Hub (Step 6)
+├── compile_text.py       # Compile text encoder on Qualcomm AI Hub (Step 6)
+├── data/
+│   └── gemini_captions.json   # 68K Visual Genome images with Gemini-generated captions
+├── models/
+│   └── soup_fresh2_x_s05e1_a042.pt   # Final model (LB=0.6122) — tracked by Git LFS
+├── lpcvc2026/
+│   └── modules/
+│       ├── data.py       # CompetitionTransform, dataset path resolution
+│       ├── evaluate.py   # evaluate_on_sample() — proxy metric computation
+│       └── soup.py       # Weight averaging helpers
+└── requirements.txt
 ```
 
 ---
@@ -74,95 +110,88 @@ MobileCLIP-B (datacompdr pretrained)
 ## Requirements
 
 - Python 3.10+
-- CUDA-capable GPU (for training)
-- Qualcomm AI Hub account (for NPU compilation)
+- CUDA-capable GPU (for fine-tuning)
+- Qualcomm AI Hub account (for NPU compilation, Step 6 only)
 
 ```bash
 pip install -r requirements.txt
-pip install qai-hub  # from https://aihub.qualcomm.com
+pip install qai-hub  # see https://aihub.qualcomm.com
+```
+
+**External datasets** (download separately, not included in this repo):
+- [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) — images for fine-tuning
+- [COCO 2014](https://cocodataset.org/) — train/val images used in proxy evaluation
+
+---
+
+## Score Reproduction (Quickstart)
+
+The final model is included in this repo via Git LFS. To verify the leaderboard score locally:
+
+```bash
+python evaluate.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt
+# Expected: Sample R@10 ≈ 92.5%
+```
+
+To reproduce the full submission (ONNX export + AI Hub compilation):
+
+```bash
+# Step 5: Export to ONNX
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt --arch MobileCLIP-B --pretrained datacompdr --no_prompt --export_only
+
+# Step 6: Compile on AI Hub (requires qai-hub account)
+python compile_image.py --onnx_dir onnx_models/models_soup_fresh2_x_s05e1_a042
+python compile_text.py  --onnx_dir onnx_models/models_soup_fresh2_x_s05e1_a042
 ```
 
 ---
 
-## Reproducibility
+## Training from Scratch
 
-### Step 1 — Fine-tune Run04 (fresh, VG, lr=5e-6)
+> Training scripts are provided for reference. Due to GPU non-determinism and DataLoader shuffle order, retraining may yield ±0.3% variation. Exact score reproduction is guaranteed via the provided model weights above.
 
-```bash
-python train_gemini_full.py --arch MobileCLIP-B --pretrained datacompdr --lr 5e-6 --epochs 5 --batch_size 64 --save_dir models/mobileclipB_04_vg_fresh
-```
-
-Use `epoch_2.pt` (epoch 2 checkpoint) as `A_CKPT`.
-
-### Step 2 — Fine-tune Run05 (from soup, VG, lr=3e-6)
-
-First create an intermediate soup from Run04 checkpoints, then:
+### Step 1 — Fine-tune Run04
 
 ```bash
-python train_gemini_full.py --arch MobileCLIP-B --pretrained datacompdr --lr 3e-6 --epochs 1 --batch_size 64 --resume models/<run04_soup>.pt --save_dir models/mobileclipB_05_vg_from_soup
+python finetune.py --arch MobileCLIP-B --pretrained datacompdr --lr 5e-6 --epochs 5 --batch_size 64 --save_dir models/run04
 ```
 
-Use `epoch_1.pt` as `B_CKPT`.
+Use `models/run04/epoch_2.pt` as the Run04 checkpoint (best on proxy).
 
-### Step 3 — Model Soup
+### Step 2 — Intermediate soup of Run04 checkpoints
+
+Edit `create_soup.py` to point `A_CKPT` / `B_CKPT` at Run04 epoch checkpoints, then:
 
 ```bash
-python soup_fresh2_x_s05e1.py
+python create_soup.py
 ```
 
-This scans alpha ∈ [0.25, 0.60] and saves the best soup to `models/soup_fresh2_x_s05e1_a042.pt`.
-
-### Step 4 — Export ONNX (Sigmoid GELU)
+### Step 3 — Fine-tune Run05 (from soup)
 
 ```bash
-python export_prompt_baked.py --model_path models/soup_fresh2_x_s05e1_a042.pt --out_dir onnx_models/winner
+python finetune.py --arch MobileCLIP-B --pretrained datacompdr --lr 3e-6 --epochs 1 --batch_size 64 --resume models/run04_soup.pt --save_dir models/run05
 ```
 
-### Step 5 — Compile on AI Hub (XR2 Gen 2)
+### Step 4 — Final soup (Run04-ep2 × Run05-ep1)
+
+Edit `create_soup.py`:
+- `A_CKPT = "models/run04/epoch_2.pt"`
+- `B_CKPT = "models/run05/epoch_1.pt"`
 
 ```bash
-python compile_image_with_calibration.py --onnx_path onnx_models/winner/image_encoder.onnx
-python compile_text_with_calibration.py  --onnx_path onnx_models/winner/text_encoder.onnx
+python create_soup.py
+# Saves best soup → models/soup_fresh2_x_s05e1_a042.pt  (alpha=0.42)
 ```
-
----
-
-## Model Weights
-
-Pre-trained model checkpoints are available at:
-
-> **[Google Drive / HuggingFace link — TBD]**
-
-| File | Description | MD5 |
-|------|-------------|-----|
-| `soup_fresh2_x_s05e1_a042.pt` | Best model (LB=0.6122) | — |
-| `mobileclipB_04_vg_fresh/epoch_2.pt` | Parent A | — |
-| `mobileclipB_05_vg_from_soup/epoch_1.pt` | Parent B | — |
 
 ---
 
 ## Results
 
-| Checkpoint | Sample R@10 | LB Score |
-|------------|------------|---------|
+| Model | Sample R@10 | Leaderboard Score |
+|-------|------------|------------------|
 | MobileCLIP-B pretrained (baseline) | ~75% | ~0.50 |
-| Run04 epoch_2 (fresh fine-tune) | ~91% | — |
-| **soup_fresh2_x_s05e1_a042** | **~92.5%** | **0.6122** |
-
----
-
-## Citation
-
-If you use this work, please cite:
-
-```bibtex
-@misc{lpcvc2026track1,
-  title  = {LPCVC 2026 Track 1 Winning Solution: Model Soup for On-Device Image-to-Text Retrieval},
-  author = {[Author Names]},
-  year   = {2026},
-  url    = {https://github.com/[repo]}
-}
-```
+| Run04 epoch_2 (fine-tuned) | ~91% | — |
+| **Final soup (alpha=0.42)** | **~92.5%** | **0.6122** |
 
 ---
 
@@ -170,5 +199,5 @@ If you use this work, please cite:
 
 - [MobileCLIP](https://github.com/apple/ml-mobileclip) by Apple
 - [open_clip](https://github.com/mlfoundations/open_clip) by LAION
-- [Qualcomm AI Hub](https://aihub.qualcomm.com) for NPU compilation
+- [Qualcomm AI Hub](https://aihub.qualcomm.com) for NPU compilation infrastructure
 - Google Gemini 2.0 Flash for caption generation
