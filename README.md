@@ -125,7 +125,7 @@ Standard GELU uses the error function (`erf`), which is not supported by the Qua
 
 - Python 3.10+
 - CUDA-capable GPU (for fine-tuning)
-- Qualcomm AI Hub account (for NPU compilation, Step 6 only)
+- Qualcomm AI Hub account (for NPU compilation, Step 5 only)
 
 ```bash
 pip install -r requirements.txt
@@ -199,12 +199,10 @@ To reproduce the full submission (ONNX export + AI Hub compilation):
 
 ```bash
 # Export ONNX + compile on AI Hub + profile (all-in-one)
-python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt \
-    --arch MobileCLIP-B --pretrained datacompdr --no_prompt
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt --arch MobileCLIP-B --pretrained datacompdr --no_prompt
 
 # Export ONNX only (skip AI Hub steps)
-python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt \
-    --arch MobileCLIP-B --pretrained datacompdr --no_prompt --export_only
+python export_onnx.py --checkpoint models/soup_fresh2_x_s05e1_a042.pt --arch MobileCLIP-B --pretrained datacompdr --no_prompt --export_only
 ```
 
 `export_onnx.py` handles the full pipeline: ONNX export → Sigmoid GELU replacement → AI Hub compile job → latency profiling. Requires a [Qualcomm AI Hub](https://aihub.qualcomm.com) account.
